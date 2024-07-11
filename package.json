@@ -1,0 +1,39 @@
+{
+  "name": "vite-plugin-shopify-ayue",
+  "version": "0.0.5",
+  "description": "",
+  "main": "index.js",
+  "type": "module",
+  "keywords": [
+    "vite",
+    "shopify",
+    "vite-plugin"
+  ],
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "default": "./dist/index.js"
+    }
+  },
+  "peerDependencies": {
+    "vite": "^5.0.0"
+  },
+  "scripts": {
+    "dev": "npm run watch",
+    "build": "tsup src/index.ts --dts --format esm --clean --publicDir --shims",
+    "watch": "tsup src/index.ts --dts --format esm --watch --publicDir --shims",
+    "lint": "eslint .",
+    "test": "vitest run"
+  },
+  "author": "Aha_Yue",
+  "license": "ISC",
+  "dependencies": {
+    "chokidar": "^3.6.0",
+    "debug": "^4.3.5",
+    "fast-glob": "^3.3.2",
+    "picocolors": "^1.0.1",
+    "sync-directory": "^6.0.5"
+  }
+}
