@@ -17,15 +17,15 @@ const sectionsPath = path.resolve(process.cwd(), "sections");
 const entrypointsPath = path.resolve(process.cwd(), "frontend/entrypoints");
 
 
-//获取文件 引入vite-tag 参数 和 name  部分
+
 const regex = /\{\%\s*liquid\s+[^%]*assign\s+isAyueImport\s*=\s*true[^%]*\%\}/g;
-
-
 
 async function cleanAndCreateDir(outputDir) {
   await rm(outputDir, { recursive: true, force: true });
   await mkdir(outputDir, { recursive: true });
 }
+
+
 async function extractSchema(filePath, entryDir, docDir) {
   //a extractSchema ayueTem/ay-tem/ay-tem.liquid
   const debug = createDebugger("vite-plugin-shopify-ayue:doc");
@@ -50,47 +50,20 @@ async function extractSchema(filePath, entryDir, docDir) {
   }
 }
 
-async function copyFilesToOnline(file, relativePath, action) {
+async function copyFilesToOnline(file, relativePath, ) {
   let outputDir = null;
   let color = null;
-
-  if (action === `copy`) {
     if (file.endsWith(".liquid")) {
       const baseName = path.basename(file);
       outputDir = path.join(sectionsPath, baseName);
       await copyFile(file, outputDir);
       color = pc.blue;
+      console.log(
+        pc.bgGreen(` handleHotUpdate  `) +
+          `:` +
+          color(`${path.relative(process.cwd(), outputDir)}`)
+      );
     }
-    if (file.endsWith(".js") || file.endsWith(".scss")) {
-      outputDir = path.join(entrypointsPath, relativePath);
-
-      const targetDir = path.dirname(outputDir);
-      if (!fs.existsSync(targetDir)) {
-        await mkdir(targetDir, { recursive: true });
-      }
-
-      await copyFile(file, outputDir);
-      color = pc.yellow;
-    }
-    console.log(
-      pc.bgGreen(` handleHotUpdate   ${action}`) +
-        `:` +
-        color(`${path.relative(process.cwd(), outputDir)}`)
-    );
-  }
-
-  if (action === `delete`) { 
-  
-    if (file.endsWith(".js") || file.endsWith(".scss")) {
-      outputDir = path.join(entrypointsPath, relativePath);
-      await rm(outputDir, { recursive: true, force: true });
-    }
-    console.log(
-      pc.bgGreen(` handleHotUpdate ${action} `) +
-        `:` +
-        pc.red(`${path.relative(process.cwd(), outputDir)}`)
-    );
-  }
 }
 
 function getDirPath(entryDir, filePath) {
@@ -104,7 +77,6 @@ async function buildLiquid(filePath, entryDir, outputDir) {
   const baseName = path.basename(filePath, ".liquid");
 
   const outputFilePath = path.join(outputDir, `${baseName}.liquid`);
-  const debug = createDebugger("vite-plugin-shopify-ayue:buildLiquid");
 
   let liquidContent = await readFile(filePath, "utf-8");
 
@@ -146,21 +118,37 @@ async function buildLiquid(filePath, entryDir, outputDir) {
   return outputFilePath;
 }
 
+
+
 function shopifyAyue(options) {
   const { entryDir, outputDir } = options;
 
-
-  syncDirectory('ayue', 'frontend/entrypoints', {
+  const syncResult = []
+  syncDirectory.sync('ayue', 'frontend/entrypoints', {
     watch: true,
     type: 'copy',
     exclude(filePath) {
-      
       return (filePath.endsWith('.liquid') || filePath.includes('.DS_Store'));
     },
     afterEachSync({ targetPath}) {
-      console.log( pc.bgGreen(` syncDir  `) + `: frontend/entrypoints/` + pc.green(`${path.relative(entrypointsPath, targetPath)}`));
-    }, // Use 'copy' if you prefer copying files instead of creating hardlinks
+      syncResult.push(targetPath)
+    },
   });
+
+
+  syncResult.sort ( (a, b) => a.localeCompare(b) );
+  syncResult.forEach ( (targetPath) => {
+    if (targetPath.endsWith('.js') || targetPath.endsWith('.scss')) {
+      
+      console.log( pc.bgGreen(` syncDir-file  : frontend/entrypoints/${path.relative(entrypointsPath, targetPath)}`)  );
+       
+      }else{
+        console.log( pc.bgBlue(` syncDir-dir  : `)  + pc.blue(`frontend/entrypoints/${path.relative(entrypointsPath, targetPath)}`));
+       
+      }
+  })
+
+
 
   const input = glob.sync(
     [`${entryDir}/*.{liquid,js,scss}`, `${entryDir}/*/*.{liquid,js,scss}`],
@@ -169,7 +157,7 @@ function shopifyAyue(options) {
 
   input.forEach(async (file) => {
     const { relativePath } = getDirPath(entryDir, file);
-    copyFilesToOnline(file, relativePath);
+    copyFilesToOnline(file, relativePath );
   });
 
 
@@ -179,25 +167,20 @@ function shopifyAyue(options) {
     name: "vite-plugin-shopify-ayue",
     // apply: "build",
     enforce: "post",
-
-    // handleHotUpdate({ file, server, read }) {
-    //   const HotUpdatePath = path.resolve(process.cwd(), `${entryDir}`);
-
-     
-    // },
-
-
+    handleHotUpdate({ file, server, read }) {
+      const HotUpdatePath = path.resolve(process.cwd(), `${entryDir}`);
+      if (file.includes(HotUpdatePath)) {
+        const { relativePath } = getDirPath(entryDir, file);
+        copyFilesToOnline(file, relativePath);
+      }
+    },
     async closeBundle() {
       let entries = input.filter((fileName) => {
         return fileName.endsWith(".liquid");
       });
-
-      const backupDir = path.resolve(process.cwd(), "ayue_backup");
       const docDir = path.resolve(process.cwd(), "ayue_doc");
       const buildLiquidDir = path.resolve(process.cwd(), "ayue_build");
-
       try {
-        await cleanAndCreateDir(backupDir);
         await cleanAndCreateDir(docDir);
         await cleanAndCreateDir(buildLiquidDir);
       } catch (error) {
@@ -229,10 +212,14 @@ function shopifyAyue(options) {
 
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
+
+      
         next();
       });
     },
   };
 }
+
+
 
 export default shopifyAyue;
