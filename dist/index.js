@@ -4,11 +4,13 @@ import { promisify } from "util";
 import pc from "picocolors";
 import createDebugger from "debug";
 import glob from "fast-glob";
-import syncDirectory from 'sync-directory'
+import syncDirectory from "sync-directory";
+import chokidar from "chokidar";
 
 const copyFile = promisify(fs.copyFile);
+
 const mkdir = promisify(fs.mkdir);
-const readdir = promisify(fs.readdir);
+
 const readFile = promisify(fs.readFile);
 const writeFile = promisify(fs.writeFile);
 const rm = promisify(fs.rm);
@@ -16,15 +18,12 @@ const rm = promisify(fs.rm);
 const sectionsPath = path.resolve(process.cwd(), "sections");
 const entrypointsPath = path.resolve(process.cwd(), "frontend/entrypoints");
 
-
-
 const regex = /\{\%\s*liquid\s+[^%]*assign\s+isAyueImport\s*=\s*true[^%]*\%\}/g;
 
 async function cleanAndCreateDir(outputDir) {
   await rm(outputDir, { recursive: true, force: true });
   await mkdir(outputDir, { recursive: true });
 }
-
 
 async function extractSchema(filePath, entryDir, docDir) {
   //a extractSchema ayueTem/ay-tem/ay-tem.liquid
@@ -50,27 +49,23 @@ async function extractSchema(filePath, entryDir, docDir) {
   }
 }
 
-async function copyFilesToOnline(file, relativePath, ) {
-  let outputDir = null;
-  let color = null;
-    if (file.endsWith(".liquid")) {
-      const baseName = path.basename(file);
-      outputDir = path.join(sectionsPath, baseName);
-      await copyFile(file, outputDir);
-      color = pc.blue;
-      console.log(
-        pc.bgGreen(` handleHotUpdate  `) +
-          `:` +
-          color(`${path.relative(process.cwd(), outputDir)}`)
-      );
-    }
+async function copyFilesToOnline(file, toPath) {
+  const baseName = path.basename(file);
+  let outputDir = path.join(toPath, baseName);
+  let color = pc.blue;
+  await copyFile(file, outputDir);
+  console.log(
+    pc.green(` HotUpdate `) +
+    `: ` +
+    color(`${path.relative(process.cwd(), outputDir)}`)
+  );
 }
 
-function getDirPath(entryDir, filePath) {
-  const relativePath = path.relative(entryDir, filePath);
-  const dirPath = path.dirname(relativePath);
-  return { relativePath, dirPath };
-}
+// function getDirPath(entryDir, filePath) {
+//   const relativePath = path.relative(entryDir, filePath);
+//   const dirPath = path.dirname(relativePath);
+//   return { relativePath, dirPath };
+// }
 async function buildLiquid(filePath, entryDir, outputDir) {
   const manifestFile = await readFile("assets/.vite/manifest.json", "utf-8");
   const manifest = JSON.parse(manifestFile);
@@ -118,66 +113,33 @@ async function buildLiquid(filePath, entryDir, outputDir) {
   return outputFilePath;
 }
 
-
-
 function shopifyAyue(options) {
-  const { entryDir, outputDir } = options;
-
-  const syncResult = []
-  syncDirectory.sync('ayue', 'frontend/entrypoints', {
-    watch: true,
-    type: 'copy',
-    exclude(filePath) {
-      return (filePath.endsWith('.liquid') || filePath.includes('.DS_Store'));
-    },
-    afterEachSync({ targetPath}) {
-      syncResult.push(targetPath)
-    },
-  });
-
-
-  syncResult.sort ( (a, b) => a.localeCompare(b) );
-  syncResult.forEach ( (targetPath) => {
-    if (targetPath.endsWith('.js') || targetPath.endsWith('.scss')) {
-      
-      console.log( pc.bgGreen(` syncDir-file  : frontend/entrypoints/${path.relative(entrypointsPath, targetPath)}`)  );
-       
-      }else{
-        console.log( pc.bgBlue(` syncDir-dir  : `)  + pc.blue(`frontend/entrypoints/${path.relative(entrypointsPath, targetPath)}`));
-       
-      }
-  })
-
-
-
-  const input = glob.sync(
-    [`${entryDir}/*.{liquid,js,scss}`, `${entryDir}/*/*.{liquid,js,scss}`],
-    { onlyFiles: true }
-  );
-
-  input.forEach(async (file) => {
-    const { relativePath } = getDirPath(entryDir, file);
-    copyFilesToOnline(file, relativePath );
-  });
-
-
+  const { entryDir, outputDir, autoChangeDev } = options;
 
   
+
+
+
+  SyncFileToEntrypoint(entryDir, entrypointsPath);
+ const watchLiquid = SyncFileToSections  (entryDir, sectionsPath);
+
+
   return {
     name: "vite-plugin-shopify-ayue",
-    // apply: "build",
     enforce: "post",
-    handleHotUpdate({ file, server, read }) {
-      const HotUpdatePath = path.resolve(process.cwd(), `${entryDir}`);
-      if (file.includes(HotUpdatePath)) {
-        const { relativePath } = getDirPath(entryDir, file);
-        copyFilesToOnline(file, relativePath);
-      }
-    },
     async closeBundle() {
-      let entries = input.filter((fileName) => {
-        return fileName.endsWith(".liquid");
-      });
+      // let entries = input.filter((fileName) => {
+      //   return fileName.endsWith(".liquid");
+      // });
+
+
+      const entries = glob.sync(
+        [`${entryDir}/**/*.liquid`],
+        { onlyFiles: true }
+      );
+
+
+
       const docDir = path.resolve(process.cwd(), "ayue_doc");
       const buildLiquidDir = path.resolve(process.cwd(), "ayue_build");
       try {
@@ -202,24 +164,110 @@ function shopifyAyue(options) {
       outList.forEach((file) => {
         console.log(
           pc.bgGreen(` Build-Liquid  `) +
-            `:` +
-            `${path.relative(process.cwd(), buildLiquidDir)}/${pc.bgMagenta(
-              path.basename(file)
-            )}`
+          `:` +
+          `${path.relative(process.cwd(), buildLiquidDir)}/${pc.bgMagenta(
+            path.basename(file)
+          )}`
         );
       });
     },
+    buildStart() {
+      console.log(pc.bgGreen(` BuildStart  `));
+    },
+
+    buildEnd() {
+
+      watchLiquid.close().then(() => console.log(pc.bgCyan('watchLiquid Stopped watching')));
+
+    },
 
     configureServer(server) {
+    
       server.middlewares.use(async (req, res, next) => {
-
-      
         next();
       });
     },
   };
 }
 
+function SyncFileToEntrypoint(from, to) {
+  const syncResult = [];
+  syncDirectory.sync(from, to, {
+    watch: true,
+    type: "copy",
+    //排除所有
+    exclude(file) {
+  
+      return  (file.endsWith(".liquid") || file.endsWith(".DS_Store"));
+    },
 
+    //     //排除所有 只选择js 和 scss
+    // forceSync: /\.(js|scss)$/,
+
+    deleteOrphaned: true,
+
+    afterEachSync({ targetPath }) {
+      syncResult.push(targetPath);
+
+      consoleFile(targetPath)
+    },
+  });
+  syncResult.sort((a, b) => a.localeCompare(b));
+  syncResult.forEach((targetPath) => {
+    consoleFile(targetPath)
+
+  });
+}
+function SyncFileToSections(from, to,) {
+  const watcher = chokidar.watch(`${from}/**/*.liquid`, {
+    ignored: /(^|[\/\\])\../, // ignore dotfiles
+    persistent: true,
+  });
+
+  watcher
+    .on("add", (filePath) => {
+      copyFilesToOnline(filePath, to);
+    })
+    .on("change", (filePath) => copyFile(filePath, path.join(to, baseName)))
+    .on("unlink", (filePath) => {
+      const baseName = path.basename(filePath);
+      const targetPath = path.join(to, baseName);
+      rm(targetPath, { force: true });
+
+      console.log(pc.bgRed(` Unlink  `) + `:` + pc.red(`/${path.relative(to, targetPath)}`));
+    })
+    .on("error", (error) => console.error(`Watcher error: ${error}`));
+
+  return watcher
+}
+
+
+function consoleFile(filePath) {
+
+  let color = null;
+  filePath.endsWith(".js") && (color = pc.yellow);
+  filePath.endsWith(".scss") && (color = pc.bgMagenta);
+  filePath.endsWith(".liquid") && (color = pc.blue);
+  const baseName = path.basename(filePath);
+  const realativePath = path.relative(process.cwd(), filePath)
+
+  console.log(
+
+
+    pc.bgGreen(` sync file `) +
+    `:` + realativePath.replace(baseName, pc.bold(color ? color(`${baseName}`) : pc.green(`/${baseName}`)))
+  )
+
+  // console.log(
+  //   pc.bgGreen(` sync file `) +
+  //     `:` +
+  //     path.relative(process.cwd(), filePath) +  )
+  //     // pc.bold(color? color(`/${path.relative(to, targetPath)}`): pc.green(`/${path.relative(to, targetPath)}`))
+
+
+  //   );
+
+
+}
 
 export default shopifyAyue;
